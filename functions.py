@@ -73,7 +73,7 @@ def gas_object(gas_composition: object, t: object, p: object) -> object:
 
         Type: Function
 
-        Subfunctions: composition_string
+        Sub functions: composition_string
 
         Input:
         gas_composition - gas object composition in format
@@ -91,6 +91,28 @@ def gas_object(gas_composition: object, t: object, p: object) -> object:
     gas_phase.TPX = t, p, components
 
     return gas_phase
+
+
+def object_to_composition(gas_phase):
+    # Decompile species and molar fractions of gas phase to input format in two lists,
+    # one for species, second for molar fractions
+    species_list = []
+    molar_fraction_list = []
+    for counter in range(len(gas_phase.species_names)):
+
+        species = str(gas_phase.species_name(counter))
+        molar_fraction = gas_phase.X[counter]
+
+        if molar_fraction > 0:
+            species_list.append(species)
+            molar_fraction_list.append(molar_fraction)
+
+    composition = []
+    composition.append(species_list)
+    composition.append(molar_fraction_list)
+
+    return composition
+
 
 
 def sensible_enthalpy(gas_phase, ref_type = None):
@@ -186,6 +208,88 @@ def fuel_to_air_ratio(oxidator, fuel, phi, m_fuel_start = None):
 
     return fuel_to_air
 
+
+def heating_value(fuel):
+    #Returns the LHV and HHV for the specified fuel
+    gas = ct.Solution('gri30.cti')
+    gas.TP = 298, ct.one_atm
+    gas.set_equivalence_ratio(1.0, fuel, 'O2:1.0')
+    h1 = gas.enthalpy_mass
+    Y_fuel = gas[fuel].Y[0]
+
+    # complete combustion products
+    Y_products = {'CO2': gas.elemental_mole_fraction('C'),
+                  'H2O': 0.5 * gas.elemental_mole_fraction('H'),
+                  'N2': 0.5 * gas.elemental_mole_fraction('N')}
+
+    gas.TPX = None, None, Y_products
+    Y_H2O = gas['H2O'].Y[0]
+    h2 = gas.enthalpy_mass
+    LHV = -(h2 - h1) / Y_fuel
+
+    water = ct.Water()
+    # Set liquid water state, with vapor fraction x = 0
+    water.TQ = 298, 0
+    h_liquid = water.h
+    # Set gaseous water state, with vapor fraction x = 1
+    water.TQ = 298, 1
+    h_gas = water.h
+
+    HHV = -(h2 - h1 + (h_liquid - h_gas) * Y_H2O) / Y_fuel
+
+    return LHV, HHV
+
+
+def heating_value_mix(fuel_mix):
+    t = 298.15
+    p = 101325
+
+    # start= time.time()
+
+    fuel = gas_object(fuel_mix, t, p)
+    LHV_average = 0
+    HHV_average = 0
+
+    for counter in range(len(fuel_mix[0])):
+        LHV, HHV = heating_value(fuel_mix[0][counter])
+        index = fuel.species_index(fuel_mix[0][counter])
+        mass_fraction = fuel.Y[index]
+        LHV_average = LHV_average + LHV * mass_fraction
+        HHV_average = HHV_average + HHV * mass_fraction
+
+    LHV_average = LHV_average / 1000
+    HHV_average = HHV_average / 1000
+
+    # end = time.time()
+    # time_span= end-start
+    # print(time_span)
+    return LHV_average, HHV_average
+
+def fuel_to_air_ratio2(oxidizer_phase, fuel_phase, phi):
+
+    fuel_string = composition_string(object_to_composition(fuel_phase))
+
+    gas = ct.Solution('gri30.yaml')
+    gas.set_equivalence_ratio(phi, fuel=fuel_string, oxidizer='O2')
+
+    index = gas.species_index('O2')
+    oxygen_molar_fraction = gas.X[index]
+    oxygen_mass_fraction = gas.Y[index]
+
+    index = oxidizer_phase.species_index('O2')
+    oxidizer_oxygen_molar_fraction = oxidizer_phase.X[index]
+    oxidizer_oxygen_mass_fraction = oxidizer_phase.Y[index]
+
+    # print(oxidizer_oxygen_molar_fraction)
+    # print(oxidizer_oxygen_mass_fraction)
+    # print(oxygen_molar_fraction)
+    # print(oxygen_mass_fraction)
+
+    fuel_to_air_mass_ratio = (1-oxygen_mass_fraction)/(oxygen_mass_fraction/oxidizer_oxygen_mass_fraction)
+
+    # print(fuel_to_air_mass_ratio)
+
+    return fuel_to_air_mass_ratio
 
 def create_state_dataframe(gas_bulk, position):
 

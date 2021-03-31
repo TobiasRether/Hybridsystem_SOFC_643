@@ -1,5 +1,5 @@
 from unittest import TestCase
-from functions import composition_string
+from functions import*
 
 
 class Test(TestCase):
