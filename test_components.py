@@ -11,15 +11,15 @@ class Test(TestCase):
         tv1 = 288.15
         mv1 = 1
         piv = 7
-        etav = 88
+        etav = 0.88
         menext = 2.4
 
         time_start = time.time()
         result = compressor(air_composition, pv1, tv1, mv1, piv, etav, menext)
         time_end = time.time()
-
-        #print(result)
         print(time_end - time_start)
+        print(result[0][0].phase.report())
+        print(result[0][1].phase.report())
 
     def test_combustion_chamber3(self):
         air_composition = [['N2', 'O2', 'AR'], [0.78, 0.21, 0.01]]
