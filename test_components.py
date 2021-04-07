@@ -1,5 +1,6 @@
 from unittest import TestCase
 from components import*
+from functions import*
 import time
 
 
@@ -145,6 +146,7 @@ class Test(TestCase):
         print(result[1])
 
     def test_sofc3(self):
+
         air_composition = [['N2', 'O2', 'AR'], [0.78, 0.21, 0.01]]
         fuel_composition = [['CH4'], [1]]
 
@@ -167,11 +169,23 @@ class Test(TestCase):
         fu_stack = 0.6
 
         fu_system_min = 0.8
-        s_to_c_ratio =2.05
+        s_to_c_ratio = 2.05
 
         dp_sofc = 100000
 
         result = sofc3(fuel_phase, compressor_out_phase, cathode_massflow_max, cathode_massflow, t_reformer,
                        t_sofc, airnumber, fu_stack, fu_system_min, s_to_c_ratio, dp_sofc)
 
-        print(result)
+        cathode_in_bulk = result[0][7]
+        cathode_out_bulk = result[0][8]
+        anode_in_bulk = result[0][4]
+        anode_out_bulk = result[0][5]
+        sofc_electrical_vector = result[3]
+
+        diagram1 = u_i_diagram(cathode_in_bulk, cathode_out_bulk, anode_in_bulk, anode_out_bulk, cathode_massflow_max,
+                               sofc_electrical_vector, airnumber)
+
+        diagram2 = diagram_gas_composition(cathode_in_bulk, cathode_out_bulk, anode_in_bulk, anode_out_bulk)
+
+        diagram1.show()
+        diagram2.show()

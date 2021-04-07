@@ -5,9 +5,9 @@ __email__ = "tobias.rether@siemens-energy.com"
 __status__ = "Demo"
 
 from input_parameters import*
-# import plotly.offline as py '
-# import plotly.graph_objects as go
-# from plotly.subplots import make_subplots
+import plotly.offline as py
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 # Packages to use for processing e.g. numpy for numerical processing,
 # cantera for electrochemical numerical calculations etc.
 # import os
@@ -1372,3 +1372,200 @@ def cell_voltage_local(cathode_phase, anode_phase, t, p, i):
     u = result[u]
 
     return u
+
+
+def u_i_diagram(cathode_in_bulk, cathode_out_bulk, anode_in_bulk, anode_out_bulk, cathode_inlet_mass_max,
+                sofc_electrical_vector, airnumber):
+    cathode_in_phase = cathode_in_bulk.phase
+    cathode_out_phase = cathode_out_bulk.phase
+
+    # print(cathode_in_phase.report())
+    # print(cathode_out_phase.report())
+
+    anode_in_phase = anode_in_bulk.phase
+    anode_out_phase = anode_out_bulk.phase
+
+    t_sofc, p_sofc = cathode_in_phase.TP
+
+    cathode_inlet_mass = cathode_in_bulk.mass
+
+    a = sofc_electrical_vector[12]
+    i = sofc_electrical_vector[11]
+    i_absolute = sofc_electrical_vector[10]
+    i_absolute_max = sofc_electrical_vector[9]
+
+    i_max = sofc_electrical_vector[6]
+    nominal_factor = sofc_electrical_vector[7]
+    i_nominal = sofc_electrical_vector[8]
+
+    n = 10
+
+    i_step = np.linspace(0, i_max, n, endpoint=True)
+
+    u_inlet = cell_voltage_local(cathode_in_phase, anode_in_phase, t_sofc, p_sofc, i)
+    u_outlet = cell_voltage_local(cathode_out_phase, anode_out_phase, t_sofc, p_sofc, i)
+
+    u0_inlet = cell_voltage_local(cathode_in_phase, anode_in_phase, t_sofc, p_sofc, 0)
+    u0_outlet = cell_voltage_local(cathode_out_phase, anode_out_phase, t_sofc, p_sofc, 0)
+
+    u_point = float((u_inlet + u_outlet) / 2)
+    u0 = (u0_inlet + u0_outlet) / 2
+
+    u_inlet = []
+    u_outlet = []
+    uo = []
+    u = []
+    # print(u_inlet, u_outlet,  u0_inlet, u0_outlet, t_sofc, p_sofc)
+    delta_u = []
+
+    for counter in range(len(i_step)):
+        u_in = float(cell_voltage_local(cathode_in_phase, anode_in_phase, t_sofc, p_sofc, i_step[counter]))
+        u_out = float(cell_voltage_local(cathode_out_phase, anode_out_phase, t_sofc, p_sofc, i_step[counter]))
+        u_average = float((u_in + u_out) / 2)
+        u0 = float(u0)
+        d_u = float(u0 - u_average)
+
+        u_inlet.append(u_in)
+        u_outlet.append(u_out)
+        u.append(u_average)
+        uo.append(u0)
+        delta_u.append(d_u)
+
+    x = i_step
+    y = u
+
+    i_max_pointer_x = []
+    i_max_pointer_y = []
+
+    i_pointer_x = [i, i, 0]
+    i_pointer_y = [0, u_point, u_point]
+
+    m_air_step = np.linspace(0, cathode_inlet_mass_max, n, endpoint=True)
+
+    quant = "mass"
+
+    i_absolute = []
+
+    for counter in range(len(m_air_step)):
+        i_absolute.append(float(oxygen_to_current(cathode_in_phase, m_air_step[counter], airnumber, quant)[0]))
+
+    i_list = i_absolute / a
+
+    m_pointer_x = [cathode_inlet_mass, cathode_inlet_mass, 0]
+    m_pointer_y = [0, i, i]
+
+    # print(u_inlet, u_outlet,  u0_inlet, u0_outlet, t_sofc, p_sofc)
+
+    fig = make_subplots(rows=1, cols=2, subplot_titles=(
+    "SOFC u-i diagram & operational point", "Correlation current density to SOFC air mass flow"))
+
+    fig.append_trace(go.Scatter(
+        x=i_step,
+        y=u, name='Average Voltage in V', line=dict(color='black', width=3)
+    ), row=1, col=1)
+
+    fig.append_trace(go.Scatter(
+        x=i_step,
+        y=uo, name='Nernst Voltage U0 in V', line=dict(color='black', width=1, dash='dash')
+    ), row=1, col=1)
+
+    fig.append_trace(go.Scatter(
+        x=i_step,
+        y=u_inlet, name='Stack Inlet Voltage in V', line=dict(color='blue', width=1, dash='dot')
+    ), row=1, col=1)
+
+    fig.append_trace(go.Scatter(
+        x=i_step,
+        y=u_outlet, name='Stack Outlet Voltage in V', line=dict(color='red', width=1, dash='dot')
+    ), row=1, col=1)
+
+    fig.append_trace(go.Scatter(
+        x=i_pointer_x,
+        y=i_pointer_y, name='Operation Point', line=dict(color='black', width=3, dash='dot')
+    ), row=1, col=1)
+
+    fig.append_trace(go.Scatter(
+        x=m_air_step,
+        y=i_list, name='Current Density to Air Mass Flow', line=dict(color='darkgrey', width=3)
+    ), row=1, col=2)
+
+    fig.append_trace(go.Scatter(
+        x=m_pointer_x,
+        y=m_pointer_y, name='Operation Point Air Mass Flow', line=dict(color='darkgrey', width=3, dash='dot')
+    ), row=1, col=2)
+
+    # Update xaxis properties
+    fig.update_xaxes(title_text="Current Density in A/cm2", dtick=0.05, range=[0.0, 0.9], row=1, col=1)
+    fig.update_xaxes(title_text="SOFC Air Mass Flow in kg/s", dtick=50, range=[0.0, 500], row=1, col=2)
+
+    # Update yaxis properties
+    fig.update_yaxes(title_text="Voltage in V", dtick=0.05, range=[0.7, 1.2], row=1, col=1)
+    fig.update_yaxes(title_text="Current Density in A/cm2", dtick=0.1, range=[0.0, 0.9], row=1, col=2)
+
+    fig.add_annotation(
+        text="SOFC Temperature: %9.2f" % (t_sofc - 273.15) + " °C <br>SOFC Pressure: %9.2f" % (
+                    p_sofc / 100000) + " bar <br>SOFC Active Cell Area: %9.2f " % (
+                         a / 10000) + " m2<br>Air Number: %2.1f " % airnumber,
+        align="left", yref='y domain', xref='x domain', x=1.4, y=0.2,
+        showarrow=False,
+        row=1, col=2)
+
+    fig.update_layout(height=600, width=1800)
+
+    return fig
+
+
+def diagram_gas_composition(cathode_inlet_bulk, cathode_outlet_bulk, anode_inlet_bulk, anode_outlet_bulk):
+
+    cathode_inlet_phase = cathode_inlet_bulk.phase
+    cathode_outlet_phase = cathode_outlet_bulk.phase
+    anode_inlet_phase = anode_inlet_bulk.phase
+    anode_outlet_phase = anode_outlet_bulk.phase
+
+    phases = [cathode_inlet_phase, cathode_outlet_phase, anode_inlet_phase, anode_outlet_phase]
+
+    titles = ['Cathode Inlet Composition', 'Cathode Outlet Composition', 'Anode Inlet Composition',
+              'Anode Outlet Composition']
+    colors = ['firebrick', 'darkred', 'darksalmon', 'blue', 'darkturquoise', 'deepskyblue', 'dodgerblue']
+
+    fig = make_subplots(rows=2, cols=2, subplot_titles=titles)
+
+    position = [[1, 1, 2, 2], [1, 2, 1, 2]]
+
+    for counter in range(len(phases)):
+        h2_mole_fraction = 100 * float(phases[counter]['H2'].X)
+        ch4_mole_fraction = 100 * float(phases[counter]['CH4'].X)
+        co2_mole_fraction = 100 * float(phases[counter]['CO2'].X)
+        h2o_mole_fraction = 100 * float(phases[counter]['H2O'].X)
+        n2_mole_fraction = 100 * float(phases[counter]['N2'].X)
+        o2_mole_fraction = 100 * float(phases[counter]['O2'].X)
+        ar_mole_fraction = 100 * float(phases[counter]['AR'].X)
+
+        moles = [h2_mole_fraction, ch4_mole_fraction, co2_mole_fraction, h2o_mole_fraction, n2_mole_fraction,
+                 o2_mole_fraction, ar_mole_fraction]
+
+        h2_mole_name = 'H2'
+        ch4_mole_name = 'CH4'
+        co2_mole_name = 'CO2'
+        h2o_mole_name = 'H2O'
+        n2_mole_name = 'N2'
+        o2_mole_name = 'O2'
+        ar_mole_name = 'AR'
+
+        names = [h2_mole_name, ch4_mole_name, co2_mole_name, h2o_mole_name, n2_mole_name, o2_mole_name, ar_mole_name]
+
+        fig.append_trace(go.Bar(
+            x=names,
+            y=moles, marker_color=colors), row=position[0][counter], col=position[1][counter])
+
+        # Update Xaxis properties
+        fig.update_xaxes(title_text="Species", row=position[0][counter], col=position[1][counter])
+
+        # Update yaxis properties
+        fig.update_yaxes(title_text="Mole Fraction [%]", dtick=5, range=[0, 100], row=position[0][counter],
+                         col=position[1][counter])
+    fig.update_layout(showlegend=False)
+
+    fig.update_layout(height=1200, width=1800)
+
+    return fig
