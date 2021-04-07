@@ -488,7 +488,6 @@ def combustion_2(pv1, tv1, mv1, __dp_cc, eta_cc, compressor_outlet_phase, fuel_p
                 delta_h = abs(ht1_j - ht1)
                 ht1 = ht1_j
 
-            # print('ht1: ' + str(ht1))
             m_fuel_target_value = m_fuel_ini
             fuel_bulk = ct.Quantity(fuel_phase, mass=m_fuel_target_value)
             compressor_outlet_phase = gas_object(compressor_outlet_composition, tv2, pv2)
@@ -527,7 +526,7 @@ def turbine(__turbine_inlet_bulk, __pt2, __etat):
      Input:
      __turbine_inlet_bulk - Turbine Inlet Cantera Quantity Object
      __pt2 - Pressure Turbine Inlet [Pa]
-     __etat - Efficiency Turbine Section []
+     __etat - Efficiency Turbine Section [-]
 
      Output:
 
@@ -577,3 +576,222 @@ def turbine(__turbine_inlet_bulk, __pt2, __etat):
     gas_properties = pd.concat([df1, df2], axis=1)
 
     return bulk_vector, attribute_vector, gas_properties
+
+
+def sofc3(fuel_phase, cathode_in_phase, cathode_massflow_max, cathode_massflow, t_reformer, t_sofc, airnumber, fu_stack,
+          fu_system_min, s_to_c_ratio, dp_sofc):
+
+    fuel_active_species_vector = ['CH4', 'H2', 'CO']
+
+    t_fuel, p_fuel = fuel_phase.TP
+    t_air_preheater, p_air_preheater = cathode_in_phase.TP
+
+    # print(cathode_in_phase.TP)
+
+    p_sofc = p_air_preheater
+    p_reformer = p_sofc
+
+    i_max = 0.9  # A/cm2
+    nominal_factor = 0.9
+
+    i_nominal = i_max * nominal_factor
+
+    i_absolute_max = oxygen_to_current(cathode_in_phase, cathode_massflow_max, airnumber)[0]
+    i_absolute = oxygen_to_current(cathode_in_phase, cathode_massflow, airnumber)[0]
+
+    a = i_absolute_max / i_nominal
+    i = i_absolute / a
+    # print(fuel_phase)
+    result = recirculation(fuel_phase, s_to_c_ratio, fu_system_min, fu_stack, t_reformer, p_reformer)
+
+    recirculation_phase = result[0][0]
+    recirculation_parameter_vector = result[1]
+    anode_in_phase = result[0][1]
+
+    steam_to_carbon_ratio = result[1][0]
+    recirculation_rate = result[1][1]
+    fuel_utilization_stack = result[1][2]
+    fuel_utilization_system = result[1][3]
+
+    anode_in_bulk = anode_inlet_bulk(anode_in_phase, fuel_active_species_vector, i_absolute, fu_stack)
+    anode_in_bulk.TP = t_sofc, p_sofc
+
+    anode_out_bulk = anode_outlet_bulk(anode_in_bulk, fuel_active_species_vector, i_absolute)
+    anode_out_bulk.TP = t_sofc, p_sofc
+
+    anode_out_phase = anode_out_bulk.phase
+
+    cathode_in_bulk = cathode_inlet_bulk(anode_in_phase, cathode_in_phase, fuel_active_species_vector, i_absolute,
+                                         airnumber)
+    cathode_in_bulk.TP = t_sofc, p_sofc
+
+    # cathode_in_bulk_composition
+
+    sofc_bulk_in_cathode_composition = object_to_composition(cathode_in_bulk.phase)
+    sofc_bulk_in_cathode_phase = gas_object(sofc_bulk_in_cathode_composition, t_air_preheater, p_air_preheater)
+
+    sofc_bulk_in_cathode_side = ct.Quantity(sofc_bulk_in_cathode_phase, mass=cathode_in_bulk.mass)
+    sofc_bulk_in_cathode_side.TP = t_air_preheater, p_air_preheater
+
+    # print(sofc_bulk_in_cathode_side.report())
+
+    cathode_out_bulk = cathode_outlet_bulk(anode_in_phase, cathode_in_phase, fuel_active_species_vector, i_absolute,
+                                           airnumber)
+    cathode_out_bulk.TP = t_sofc, p_sofc
+
+    rec_mass = recirculation_rate * anode_out_bulk.mass
+    fuel_mass = anode_in_bulk.mass - rec_mass
+    reformate_mass = anode_in_bulk.mass
+
+    reformate_bulk = ct.Quantity(anode_in_phase, mass=reformate_mass)
+    reformate_bulk.TP = t_reformer, p_reformer
+
+    fuel_bulk_sofc_in = ct.Quantity(fuel_phase, mass=fuel_mass)
+    fuel_bulk_sofc_in.TP = t_fuel, p_fuel
+
+    fuel_bulk_reformer_in = ct.Quantity(fuel_phase, mass=fuel_mass)
+    fuel_bulk_reformer_in.TP = t_reformer, p_reformer
+
+    recirculation_bulk = ct.Quantity(recirculation_phase, mass=rec_mass)
+    recirculation_bulk.TP = t_sofc, p_sofc
+
+    afterburner_in_anode_mass = (1 - recirculation_rate) * anode_out_bulk.mass
+    afterburner_in_anode_bulk = ct.Quantity(anode_out_phase, mass=afterburner_in_anode_mass)
+
+    afterburner_in_cathode_bulk = ct.Quantity(cathode_out_bulk.phase, mass=cathode_out_bulk.mass)
+
+    afterburner_in_bulk = afterburner_in_anode_bulk + afterburner_in_cathode_bulk
+
+    afterburner_out_bulk = ct.Quantity(afterburner_in_bulk.phase, mass=afterburner_in_bulk.mass)
+    afterburner_out_bulk.equilibrate('HP')
+
+    h_sofc_in_cathode_side = sensible_enthalpy(sofc_bulk_in_cathode_side.phase, ref_type=None)[0] / 1000
+    m_sofc_in_cathode_side = sofc_bulk_in_cathode_side.mass
+
+    h_cathode_in = sensible_enthalpy(cathode_in_bulk.phase, ref_type=None)[0] / 1000
+    m_cathode_in = cathode_in_bulk.mass
+
+    h_recirculation = sensible_enthalpy(recirculation_bulk.phase, ref_type=None)[0] / 1000
+    m_recirculation = recirculation_bulk.mass
+
+    h_fuel_reformer_in = sensible_enthalpy(fuel_bulk_reformer_in.phase, ref_type=None)[0] / 1000
+    m_fuel_reformer_in = fuel_bulk_reformer_in.mass
+
+    h_fuel_sofc_in = sensible_enthalpy(fuel_bulk_sofc_in.phase, ref_type=None)[0] / 1000
+    m_fuel_sofc_in = fuel_bulk_sofc_in.mass
+
+    h_reformate = sensible_enthalpy(reformate_bulk.phase, ref_type=None)[0] / 1000
+    m_reformate = reformate_bulk.mass
+
+    h_anode_in = sensible_enthalpy(anode_in_bulk.phase, ref_type=None)[0] / 1000
+    m_anode_in = anode_in_bulk.mass
+
+    reaction_enthalpy_steam_reforming = 1000 * 164.4
+    # combination of:
+    # 1) SR - steam reforming of methane and steam with +206 [kJ/kmol] result in carbon monooxide and hydrogen
+    # 2) WGS - water gas shift reaction of carbon monooxide and steam with -41.6 [kJ/kmol] result in carbon mdioxide and hydrogen
+    # summarize to +206 [kJ/kmol] + (-41.6) [kJ/kmol] => 164.4
+
+    ##########################################################################################################
+    u_inlet = cell_voltage_local(cathode_in_bulk.phase, anode_in_bulk.phase, t_sofc, p_sofc, i)
+    u_outlet = cell_voltage_local(cathode_out_bulk.phase, anode_out_bulk.phase, t_sofc, p_sofc, i)
+
+    u0_inlet = cell_voltage_local(cathode_in_bulk.phase, anode_in_bulk.phase, t_sofc, p_sofc, 0)
+    u0_outlet = cell_voltage_local(cathode_out_bulk.phase, anode_out_bulk.phase, t_sofc, p_sofc, 0)
+
+    u = (u_inlet + u_outlet) / 2
+    u0 = (u0_inlet + u0_outlet) / 2
+
+    p_absolute = u * i_absolute / 1000
+
+    delta_u = u0 - u
+
+    #################################################################################################################
+    q_cathode = m_sofc_in_cathode_side * h_sofc_in_cathode_side - m_cathode_in * h_cathode_in
+    q_anode_fuel = m_fuel_sofc_in * h_fuel_sofc_in - m_fuel_reformer_in * h_fuel_reformer_in
+    q_reformer = m_recirculation * h_recirculation + m_fuel_sofc_in * h_fuel_reformer_in - m_reformate * h_reformate
+    q_steam_reforming = - fuel_bulk_reformer_in.phase[
+        'CH4'].X * fuel_bulk_reformer_in.moles * reaction_enthalpy_steam_reforming
+    q_reformer_anode = m_reformate * h_reformate - m_anode_in * h_anode_in
+    q_sofc_ohmic_losses = delta_u * i_absolute / 1000
+    # q_sofc_ohmic_losses = 0.2*i_absolute/1000
+    q_losses = 0
+    q_deficite = q_anode_fuel + q_cathode + q_reformer + q_steam_reforming[
+        0] + q_reformer_anode + q_sofc_ohmic_losses + q_losses
+
+    dh_deficite = q_deficite / afterburner_out_bulk.mass
+
+    sofc_out_bulk = ct.Quantity(afterburner_out_bulk.phase, mass=afterburner_out_bulk.mass)
+
+    h_out_sofc = afterburner_out_bulk.phase.enthalpy_mass / 1000
+    sofc_out_bulk.HP = (h_out_sofc + dh_deficite) * 1000, (p_sofc - dp_sofc)
+
+    h_sofc_exit = sensible_enthalpy(sofc_out_bulk.phase, ref_type=None)[0] / 1000
+
+    #####################################################################################################
+    fuel_composition = object_to_composition(fuel_phase)
+    reformate_composition = object_to_composition(anode_in_phase)
+
+    lhv_fuel = heating_value_mix(fuel_composition)[0]
+    lhv_reformate = heating_value_mix(reformate_composition)[0]
+
+    t_sofc_out = sofc_out_bulk.T
+
+    dt = 30
+
+    if t_sofc_out < t_air_preheater + dt:
+
+        sofc_out_bulk.TP = t_air_preheater + dt, sofc_out_bulk.P
+        h_sofc_exit_2 = sensible_enthalpy(sofc_out_bulk.phase, ref_type=None)[0] / 1000
+
+        m_sofc_out = sofc_out_bulk.mass
+
+        dh = h_sofc_exit_2 - h_sofc_exit
+
+        m_fuel_add = m_sofc_out * dh / lhv_fuel
+
+        auxiliary_fuel = ct.Quantity(fuel_phase, mass=m_fuel_add)
+        auxiliary_fuel.TP = t_fuel, p_fuel
+
+    elif t_sofc_out > t_air_preheater + dt or t_sofc_out == t_air_preheater + dt:
+        m_fuel_add = 0
+        auxiliary_fuel = ct.Quantity(fuel_phase, mass=m_fuel_add)
+        auxiliary_fuel.TP = t_fuel, p_fuel
+
+    fuel_power = fuel_mass * lhv_fuel
+    fuel_add_power = (fuel_mass + m_fuel_add) * lhv_fuel
+    reformate_power = reformate_mass * lhv_reformate
+
+    eta_fuel = p_absolute / fuel_power
+    eta_add_fuel = p_absolute / fuel_add_power
+    eta_reformate = p_absolute / reformate_power
+
+    ##########################################################################################################
+
+    df1 = create_state_dataframe(sofc_bulk_in_cathode_side, "SOFC Inlet Cathode Side")
+    df2 = create_state_dataframe(fuel_bulk_sofc_in, "SOFC Inlet Fuel Side")
+    df3 = create_state_dataframe(recirculation_bulk, "Reformer Inlet recirculation")
+    df4 = create_state_dataframe(fuel_bulk_reformer_in, "Reformer Inlet Fuel Side")
+    df5 = create_state_dataframe(reformate_bulk, "Reformer Outlet Bulk")
+    df6 = create_state_dataframe(anode_in_bulk, "Anode Inlet")
+    df7 = create_state_dataframe(cathode_in_bulk, "Cathode Inlet")
+    df8 = create_state_dataframe(anode_out_bulk, "Anode Outlet")
+    df9 = create_state_dataframe(cathode_out_bulk, "Cathode Outlet")
+    df10 = create_state_dataframe(auxiliary_fuel, "Auxiliary Fuel")
+    df11 = create_state_dataframe(afterburner_in_bulk, "Afterburner Inlet")
+    df12 = create_state_dataframe(afterburner_out_bulk, "Afterburner Outlet")
+    df13 = create_state_dataframe(sofc_out_bulk, "SOFC Outlet Bulk")
+
+    gas_properties = pd.concat([df1, df2, df3, df4, df5, df6, df7, df8, df9, df10, df11, df12, df13], axis=1)
+
+    bulk_vector = [fuel_bulk_sofc_in, fuel_bulk_reformer_in, recirculation_bulk, reformate_bulk, anode_in_bulk,
+                   anode_out_bulk, sofc_bulk_in_cathode_side, cathode_in_bulk,
+                   cathode_out_bulk, afterburner_in_bulk, afterburner_out_bulk, sofc_out_bulk]
+    heat_vector = [q_cathode, q_anode_fuel, q_reformer, q_steam_reforming[0], q_reformer_anode, q_sofc_ohmic_losses,
+                   q_losses, q_deficite]
+    performance_vector = [p_absolute, i_absolute, fuel_add_power, reformate_power, eta_add_fuel, eta_reformate,
+                          lhv_fuel, lhv_reformate]
+    sofc_electrical_vector = [u, u0, u_inlet, u_outlet, u0_inlet, u0_outlet, i_max, nominal_factor, i_nominal,
+                              i_absolute_max, i_absolute, i, a]
+
+    return bulk_vector, heat_vector, performance_vector, sofc_electrical_vector, recirculation_parameter_vector, gas_properties
