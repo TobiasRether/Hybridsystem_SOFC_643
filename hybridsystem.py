@@ -172,44 +172,56 @@ def gasturbine3(__compressor_gas_in_composition, __fuel_phase, __pv1, __tv1, __m
     return bulk_vector, attribute_vector, gas_properties
 
 
-# compressor input
+# help(sofc3)
 
 
-__compressor_gas_in_composition = [['N2', 'O2', 'AR'], [0.78, 0.21, 0.01]]
-__pv1 = 101325
-__tv1 = 288.15
-__mv1 = 191
-__piv = 16.5
-__etav = 0.88
-__menext = 2.4
+def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext, split_factor_bypass,
+                            fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
+                            fu_system_min, s_to_c_ratio, dp_sofc):
 
-# combustor input
+    compressor_inlet_bulk = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[0][0]
+    compressor_outlet_bulk = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[0][1]
 
+    compressor_outlet_mass = compressor_outlet_bulk.mass
+    sofc_oxidator_mass = (1-split_factor_bypass)*compressor_outlet_mass
+    bypass_mass = split_factor_bypass*compressor_outlet_mass
+
+    sofc_oxidator_inlet_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=sofc_oxidator_mass)
+    bypass_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=bypass_mass)
+
+    sofc_outlet_bulk = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
+                             sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
+                             s_to_c_ratio, dp_sofc)[0][11]
+    return sofc_outlet_bulk
+
+
+air_composition = [['N2', 'O2', 'AR'], [0.78, 0.21, 0.01]]
 fuel_composition = [['CH4'], [1]]
-__m_fuel = 3.0
+
+pv1 = 101325
+tv1 = 288.15
+mv1 = 1
+
+m_fuel = 0.02
 t_fuel = 300
 p_fuel = 2501325
 
-__fuel_phase = gas_object(fuel_composition, t_fuel, p_fuel)
+piv = 7
+etav = 0.88
+menext = 2.4
+split_factor_bypass = 0.5
+fuel_phase_sofc = gas_object(fuel_composition, t_fuel, p_fuel)
+cathode_massflow_max = 1
+t_reformer = 650 + 273.15
+t_sofc = 850 + 273.15
+airnumber = 2
+fu_stack = 0.6
+fu_system_min = 0.8
+s_to_c_ratio = 2.05
+dp_sofc = 0
 
-__tt1 = 1130 + 273.15
-__dp_cc = 20000
+result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, menext, split_factor_bypass,
+                                 fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
+                                 fu_system_min, s_to_c_ratio, dp_sofc)
 
-__m_cooler = 16.74
-__p_booster = 386
-__t_hex_out = 198 + 273.15
-__eta_cc = 0.998
-
-__controller = 2
-
-# turbine input
-
-__pt2 = 103325
-__etat = 0.88
-
-time_start = time.time()
-result = gasturbine3(__compressor_gas_in_composition, __fuel_phase, __pv1, __tv1, __mv1, __piv, __etav, __menext,
-                     __m_fuel, __tt1, __dp_cc, __m_cooler, __p_booster, __t_hex_out, __eta_cc, __pt2, __etat,
-                     __controller)
-time_end = time.time()
-print(time_end - time_start)
+result.phase()
