@@ -1,5 +1,6 @@
-# from functions import *
+from functions import *
 from components import *
+import csv
 
 # Packages to use for processing e.g. numpy for numerical processing,
 # cantera for electrochemical numerical calculations etc.
@@ -177,10 +178,17 @@ def gasturbine3(__compressor_gas_in_composition, __fuel_phase, __pv1, __tv1, __m
 
 def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext, split_factor_bypass,
                             fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
-                            fu_system_min, s_to_c_ratio, dp_sofc):
+                            fu_system_min, s_to_c_ratio, dp_sofc, __m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
+                            __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat):
 
     compressor_inlet_bulk = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[0][0]
     compressor_outlet_bulk = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[0][1]
+
+    p2_b = compressor_outlet_bulk.phase.P + dp_sofc
+    eta_booster = 0.85
+
+    booster_inlet_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=compressor_outlet_bulk.mass)
+    booster_outlet_bulk = Booster(booster_inlet_bulk, p2_b, eta_booster)[0]
 
     compressor_outlet_mass = compressor_outlet_bulk.mass
     sofc_oxidator_mass = (1-split_factor_bypass)*compressor_outlet_mass
@@ -192,36 +200,101 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     sofc_outlet_bulk = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
                              sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
                              s_to_c_ratio, dp_sofc)[0][11]
-    return sofc_outlet_bulk
+    combustor_inlet_oxidator_bulk = sofc_outlet_bulk + bypass_bulk
+    combustor_outlet_flue_bulk = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
+                                                     __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
+                                                     __tt1, __m_fuel, __controller)[0][5]
+    turbine_outlet_bulk = turbine(combustor_outlet_flue_bulk, __pt2, __etat)[0][1]
+
+    gas_prop_comp = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[2]
+    gas_prop_boo = Booster(booster_inlet_bulk, p2_b, eta_booster)[2]
+    gas_prop_comb = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
+                                                     __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
+                                                     __tt1, __m_fuel, __controller)[2]
+    gas_prop_turb = turbine(combustor_outlet_flue_bulk, __pt2, __etat)[2]
+    gas_prop_sofc = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
+                             sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
+                             s_to_c_ratio, dp_sofc)[5]
+    df_list = [gas_prop_comp, gas_prop_boo, gas_prop_comb, gas_prop_turb, gas_prop_sofc]
+    multiple_dfs(df_list, 'Bulk','Results.xlsx',1)
+
+    attr_comp = pd.DataFrame (compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[1],
+                              index = ['MV1','MV1 EQ', 'PV1', 'PV2','PIV','TV1','TV2', 'TV2 IS','Compressor Power',
+                                       'Compressor Power Equivalent'])
+    attr_comb = pd.DataFrame(combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
+                                                     __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
+                                                     __tt1, __m_fuel, __controller)[1], index=['M Fuel', 'LHV',
+                                                                                               'Fuel Heat Power',
+                                                                                               'PT1','TT1'])
+    attr_turb = pd.DataFrame(turbine(combustor_outlet_flue_bulk, __pt2, __etat)[1], index = ['MT1', 'PT1', 'TT1', 'PT2',
+                             'TT2 IS', 'TT2', 'Turbine Power'])
+    attr_boo = pd.DataFrame(Booster(booster_inlet_bulk, p2_b, eta_booster)[1], index = ['M1','T2','T2 IS',
+                                                                                        'Booster Power'])
+    df_list_1 = [attr_comp,attr_boo, attr_comb, attr_turb]
+    multiple_dfs_1(df_list_1, 'Attribute Vector', 'Results.xlsx', 1)
+
+    perf_sofc = pd.DataFrame(sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
+                             sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
+                             s_to_c_ratio, dp_sofc)[2], index=['p_absolute', 'i_absolute', 'fuel_add_power',
+                                                               'reformate_power','eta_add_fuel', 'eta_reformate',
+                                                               'lhv_fuel', 'lhv_reformate'])
+    heat_sofc = pd.DataFrame(sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
+                             sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
+                             s_to_c_ratio, dp_sofc)[1], index=['q_cathode', 'q_anode_fuel', 'q_reformer',
+                                                               'q_steam_reforming[0]', 'q_reformer_anode',
+                                                               'q_sofc_ohmic_losses','q_losses', 'q_deficite'])
+    elec_sofc = pd.DataFrame(sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
+                             sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
+                             s_to_c_ratio, dp_sofc)[3], index=['u', 'u0', 'u_inlet', 'u_outlet', 'u0_inlet',
+                                                               'u0_outlet', 'i_max', 'nominal_factor', 'i_nominal',
+                                                               'i_absolute_max', 'i_absolute', 'i', 'a'])
+    df_list_2 = [perf_sofc, heat_sofc, elec_sofc]
+    multiple_dfs_1(df_list_2, 'SOFC', 'Results.xlsx', 1)
+
+    return compressor_inlet_bulk, turbine_outlet_bulk
 
 
+#help(combustion_chamber3)
 air_composition = [['N2', 'O2', 'AR'], [0.78, 0.21, 0.01]]
 fuel_composition = [['CH4'], [1]]
 
 pv1 = 101325
 tv1 = 288.15
-mv1 = 1
+mv1 = 180
 
 m_fuel = 0.02
 t_fuel = 300
 p_fuel = 2501325
 
-piv = 7
+piv = 16
 etav = 0.88
 menext = 2.4
-split_factor_bypass = 0.5
+split_factor_bypass = 0.99
 fuel_phase_sofc = gas_object(fuel_composition, t_fuel, p_fuel)
-cathode_massflow_max = 1
+cathode_massflow_max = 180
 t_reformer = 650 + 273.15
 t_sofc = 850 + 273.15
 airnumber = 2
 fu_stack = 0.6
 fu_system_min = 0.8
 s_to_c_ratio = 2.05
-dp_sofc = 0
+dp_sofc = 200000
+__m_cooler = 15
+__p_booster = 600
+__t_hex_out = 200 + 273.15
+fuel_phase_gt = gas_object(fuel_composition, t_fuel, p_fuel)
+__eta_cc = 0.998
+__dp_cc = 200
+__tt1 = 1130 + 273.15
+__m_fuel = 0.02
+__controller = 2
+__pt2 = pv1+ 2000
+__etat = 0.88
 
 result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, menext, split_factor_bypass,
                                  fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
-                                 fu_system_min, s_to_c_ratio, dp_sofc)
+                                 fu_system_min, s_to_c_ratio, dp_sofc,__m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
+                                 __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat)
 
-result.phase()
+result[0].phase()
+result[1].phase()

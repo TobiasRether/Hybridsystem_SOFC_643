@@ -8,12 +8,14 @@ from input_parameters import*
 import plotly.offline as py
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from xlsxwriter import*
 # Packages to use for processing e.g. numpy for numerical processing,
 # cantera for electrochemical numerical calculations etc.
 # import os
 # import csv
 
 import pandas as pd
+import openpyxl
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1569,3 +1571,46 @@ def diagram_gas_composition(cathode_inlet_bulk, cathode_outlet_bulk, anode_inlet
     fig.update_layout(height=1200, width=1800)
 
     return fig
+
+def multiple_dfs(df_list, sheets, file_name, spaces):
+        writer = pd.ExcelWriter(file_name, engine='xlsxwriter')
+        col = 0
+        i=0
+        for dataframe in df_list:
+            idx = df_list[i].index
+            idx1 = df_list[i + 1].index
+            if col == 0:
+                dataframe.to_excel(writer, sheet_name=sheets, index=True, header=False, startrow=0, startcol=col)
+                col = col + len(dataframe.columns) + spaces + 1
+            elif idx1.equals(idx)==True:
+                dataframe.to_excel(writer, sheet_name=sheets, index=False, header=False, startrow=0, startcol=col)
+                col = col + len(dataframe.columns) + spaces
+                i+=1
+            else:
+                dataframe.to_excel(writer, sheet_name=sheets, index=True, header=False, startrow=0, startcol=col)
+                col = col + len(dataframe.columns) + spaces +1
+                i += 1
+
+
+        writer.save()
+
+def multiple_dfs_1(df_list, sheets, file_name, spaces):
+    writer = pd.ExcelWriter(file_name, engine='openpyxl', mode='a')
+    col=0
+    i = 0
+    for dataframe in df_list:
+        idx = df_list[i].index
+        idx1 = df_list[i + 1].index
+        if col == 0:
+            dataframe.to_excel(writer, sheet_name=sheets, index=True, header=False, startrow=0, startcol=col)
+            col = col + len(dataframe.columns) + spaces + 1
+        elif idx1.equals(idx) == True:
+            dataframe.to_excel(writer, sheet_name=sheets, index=False, header=False, startrow=0, startcol=col)
+            col = col + len(dataframe.columns) + spaces
+            i += 1
+        else:
+            dataframe.to_excel(writer, sheet_name=sheets, index=True, header=False, startrow=0, startcol=col)
+            col = col + len(dataframe.columns) + spaces +1
+            i += 1
+
+    writer.save()

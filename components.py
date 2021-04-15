@@ -795,3 +795,30 @@ def sofc3(fuel_phase, cathode_in_phase, cathode_massflow_max, cathode_massflow, 
                               i_absolute_max, i_absolute, i, a]
 
     return bulk_vector, heat_vector, performance_vector, sofc_electrical_vector, recirculation_parameter_vector, gas_properties
+
+def Booster(booster_inlet_bulk, p2, is_eff):
+    m1 = booster_inlet_bulk.mass
+    df1 = create_state_dataframe(booster_inlet_bulk, 'Booster Inlet')
+
+    s1 = booster_inlet_bulk.phase.s
+    h1 = booster_inlet_bulk.phase.h
+
+    booster_outlet_bulk = ct.Quantity(booster_inlet_bulk.phase, mass=booster_inlet_bulk.mass)
+    booster_outlet_bulk.SP = s1, p2
+    t2_is = booster_outlet_bulk.phase.T
+    h2_is = booster_outlet_bulk.phase.h
+
+    h2 = (h2_is - h1) / is_eff + h1
+
+    booster_outlet_bulk.HP = h2, p2
+    t2 = booster_outlet_bulk.phase.T
+
+    booster_outlet_bulk = ct.Quantity(booster_outlet_bulk.phase, mass=booster_outlet_bulk.mass)
+
+    df2 = create_state_dataframe(booster_outlet_bulk, 'Booster Outlet')
+
+    gas_properties = pd.concat([df1, df2], axis=1)
+    compressor_power = m1 * (h2 - h1) / 1000
+    attribute_vector = [m1, t2, t2_is, compressor_power]
+
+    return booster_outlet_bulk, attribute_vector, gas_properties
