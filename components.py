@@ -796,7 +796,7 @@ def sofc3(fuel_phase, cathode_in_phase, cathode_massflow_max, cathode_massflow, 
 
     return bulk_vector, heat_vector, performance_vector, sofc_electrical_vector, recirculation_parameter_vector, gas_properties
 
-def Booster(booster_inlet_bulk, p2, is_eff):
+def booster(booster_inlet_bulk, p2, is_eff):
     m1 = booster_inlet_bulk.mass
     df1 = create_state_dataframe(booster_inlet_bulk, 'Booster Inlet')
 
@@ -822,3 +822,28 @@ def Booster(booster_inlet_bulk, p2, is_eff):
     attribute_vector = [m1, t2, t2_is, compressor_power]
 
     return booster_outlet_bulk, attribute_vector, gas_properties
+
+def cooler (cooler_inlet_bulk):
+    df1 = create_state_dataframe(cooler_inlet_bulk, 'Cooler Inlet')
+
+    cooler_outlet_bulk = ct.Quantity(cooler_inlet_bulk.phase, mass=cooler_inlet_bulk.mass)
+
+    dp_cooler = 35000
+    q_cooler = 4926
+    cp_mass = float(cooler_inlet_bulk.phase.cp_mass)
+    t1 = cooler_inlet_bulk.phase.T
+    m1 = cooler_inlet_bulk.mass
+    p1 = cooler_inlet_bulk.phase.P
+    t2 = t1 - (q_cooler/(cp_mass*m1))
+    p2 = p1 - dp_cooler
+
+    cooler_outlet_bulk.TP = t2,p2
+
+    cooler_outlet_bulk = ct.Quantity(cooler_outlet_bulk.phase, mass=cooler_outlet_bulk.mass)
+
+    df2 = create_state_dataframe(cooler_outlet_bulk, 'Cooler Outlet')
+
+    gas_properties = pd.concat([df1, df2], axis=1)
+    attribute_vector = [m1, t2, p2]
+
+    return cooler_inlet_bulk, cooler_outlet_bulk, attribute_vector, gas_properties

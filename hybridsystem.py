@@ -184,17 +184,34 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     compressor_inlet_bulk = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[0][0]
     compressor_outlet_bulk = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[0][1]
 
-    p2_b = compressor_outlet_bulk.phase.P + dp_sofc
+    compressor_outlet_mass = compressor_outlet_bulk.mass
+
+    cooler_inlet_mass = (1-split_factor_bypass)*compressor_outlet_mass
+
+    if cooler_inlet_mass <= 20:
+        cooler_inlet_mass = cooler_inlet_mass
+    elif cooler_inlet_mass >20:
+        m_add_comb = cooler_inlet_mass-20
+        cooler_inlet_mass = 20
+
+    cooler_inlet_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=cooler_inlet_mass)
+    cooler_outlet_bulk = cooler(cooler_inlet_bulk)[1]
+
+    if cooler_outlet_bulk.mass > 15.4:
+        m_add_comb_2 = cooler_outlet_bulk.mass - 15.4
+        cooler_outlet_bulk.mass = 15.4
+    elif cooler_outlet_bulk.mass <= 15.4:
+        cooler_outlet_bulk.mass = cooler_outlet_bulk.mass
+
+    p2_b = cooler_outlet_bulk.phase.P * 1.22
     eta_booster = 0.85
 
-    booster_inlet_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=compressor_outlet_bulk.mass)
-    booster_outlet_bulk = Booster(booster_inlet_bulk, p2_b, eta_booster)[0]
+    booster_outlet_bulk = booster(cooler_outlet_bulk,p2_b,eta_booster)[0]
 
-    compressor_outlet_mass = compressor_outlet_bulk.mass
-    sofc_oxidator_mass = (1-split_factor_bypass)*compressor_outlet_mass
-    bypass_mass = split_factor_bypass*compressor_outlet_mass
+    sofc_oxidator_mass = booster_outlet_bulk.mass
+    bypass_mass = split_factor_bypass*compressor_outlet_mass + m_add_comb + m_add_comb_2
 
-    sofc_oxidator_inlet_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=sofc_oxidator_mass)
+    sofc_oxidator_inlet_bulk = ct.Quantity(booster_outlet_bulk.phase, mass=sofc_oxidator_mass)
     bypass_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=bypass_mass)
 
     sofc_outlet_bulk = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
@@ -206,8 +223,11 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
                                                      __tt1, __m_fuel, __controller)[0][5]
     turbine_outlet_bulk = turbine(combustor_outlet_flue_bulk, __pt2, __etat)[0][1]
 
+
+
     gas_prop_comp = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[2]
-    gas_prop_boo = Booster(booster_inlet_bulk, p2_b, eta_booster)[2]
+    gas_prop_cool = cooler(cooler_inlet_bulk)[3]
+    gas_prop_boo = booster(cooler_outlet_bulk, p2_b, eta_booster)[2]
     gas_prop_comb = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
                                                      __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
                                                      __tt1, __m_fuel, __controller)[2]
@@ -215,12 +235,13 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     gas_prop_sofc = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
                              sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
                              s_to_c_ratio, dp_sofc)[5]
-    df_list = [gas_prop_comp, gas_prop_boo, gas_prop_comb, gas_prop_turb, gas_prop_sofc]
+    df_list = [gas_prop_comp, gas_prop_cool, gas_prop_boo, gas_prop_comb, gas_prop_turb, gas_prop_sofc]
     multiple_dfs(df_list, 'Bulk','Results.xlsx',1)
 
     attr_comp = pd.DataFrame (compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[1],
                               index = ['MV1','MV1 EQ', 'PV1', 'PV2','PIV','TV1','TV2', 'TV2 IS','Compressor Power',
                                        'Compressor Power Equivalent'])
+    attr_cool = pd.DataFrame(cooler(cooler_inlet_bulk)[2], index = ['M1', 'T2', 'P2'])
     attr_comb = pd.DataFrame(combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
                                                      __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
                                                      __tt1, __m_fuel, __controller)[1], index=['M Fuel', 'LHV',
@@ -228,9 +249,9 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
                                                                                                'PT1','TT1'])
     attr_turb = pd.DataFrame(turbine(combustor_outlet_flue_bulk, __pt2, __etat)[1], index = ['MT1', 'PT1', 'TT1', 'PT2',
                              'TT2 IS', 'TT2', 'Turbine Power'])
-    attr_boo = pd.DataFrame(Booster(booster_inlet_bulk, p2_b, eta_booster)[1], index = ['M1','T2','T2 IS',
+    attr_boo = pd.DataFrame(booster(cooler_outlet_bulk, p2_b, eta_booster)[1], index = ['M1','T2','T2 IS',
                                                                                         'Booster Power'])
-    df_list_1 = [attr_comp,attr_boo, attr_comb, attr_turb]
+    df_list_1 = [attr_comp,attr_cool, attr_boo, attr_comb, attr_turb]
     multiple_dfs_1(df_list_1, 'Attribute Vector', 'Results.xlsx', 1)
 
     perf_sofc = pd.DataFrame(sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
@@ -260,7 +281,7 @@ fuel_composition = [['CH4'], [1]]
 
 pv1 = 101325
 tv1 = 288.15
-mv1 = 180
+mv1 = 189
 
 m_fuel = 0.02
 t_fuel = 300
@@ -269,7 +290,7 @@ p_fuel = 2501325
 piv = 16
 etav = 0.88
 menext = 2.4
-split_factor_bypass = 0.99
+split_factor_bypass = 0.5
 fuel_phase_sofc = gas_object(fuel_composition, t_fuel, p_fuel)
 cathode_massflow_max = 180
 t_reformer = 650 + 273.15
@@ -285,16 +306,26 @@ __t_hex_out = 200 + 273.15
 fuel_phase_gt = gas_object(fuel_composition, t_fuel, p_fuel)
 __eta_cc = 0.998
 __dp_cc = 200
-__tt1 = 1130 + 273.15
+__tt1 = 850 + 273.15
 __m_fuel = 0.02
 __controller = 2
 __pt2 = pv1+ 2000
 __etat = 0.88
+fuel_phase = gas_object(fuel_composition, t_fuel, p_fuel)
 
-result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, menext, split_factor_bypass,
-                                 fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
-                                 fu_system_min, s_to_c_ratio, dp_sofc,__m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
-                                 __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat)
+#result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, menext, split_factor_bypass,
+#                                 fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
+#                                 fu_system_min, s_to_c_ratio, dp_sofc,__m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
+#                                 __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat)
 
-result[0].phase()
-result[1].phase()
+#result[0].phase()
+#result[1].phase()
+
+#help(gasturbine3)
+
+result = gasturbine3(air_composition,fuel_phase,pv1,tv1,mv1,piv,etav,menext,__m_fuel,__tt1,__dp_cc,__m_cooler,
+                     __p_booster,__t_hex_out, __eta_cc, __pt2, __etat, __controller)
+
+print(result[1][0][4])
+
+#help(sofc3)

@@ -316,8 +316,8 @@ def create_state_dataframe(gas_bulk, position):
     entropy_mole_act = float(gas_bulk.phase.entropy_mole)
     entropy_mass_act = float(gas_bulk.phase.entropy_mass)
 
-    cp_mass = float(gas_bulk.phase.cp_mass)
-    cv_mass = float(gas_bulk.phase.cv_mass)
+    cp_mass = float(gas_bulk.phase.cp_mass)/1000
+    cv_mass = float(gas_bulk.phase.cv_mass)/1000
     kappa = float(cp_mass/cv_mass)
 
     cp_moles = float(gas_bulk.phase.cp_mole)
