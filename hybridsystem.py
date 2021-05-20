@@ -272,6 +272,36 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     df_list_2 = [perf_sofc, heat_sofc, elec_sofc]
     multiple_dfs_1(df_list_2, 'SOFC', 'Results.xlsx', 1)
 
+    eta_inverter = 0.94
+    eta_gear = 0.99
+    eta_geno_gt = 0.985
+    list(attr_comp.columns.values)
+    gross_turbo_comp_power = attr_comp.at['Compressor Power',attr_comp.columns[0]]+attr_turb.at['Turbine Power',
+                                                                                                attr_turb.columns[0]]
+    netto_turbo_comp_power = gross_turbo_comp_power * eta_gear * eta_geno_gt
+    booster_power = attr_boo.at['Booster Power', attr_boo.columns[0]]
+    gross_sofc_elec_power = perf_sofc.at['p_absolute',perf_sofc.columns[0]]
+    netto_sofc_elec_power = gross_sofc_elec_power * eta_inverter
+    sofc_fuel_power = perf_sofc.at['fuel_add_power',perf_sofc.columns[0]]
+    comb_fuel_power = attr_comb.at['Fuel Heat Power', attr_comb.columns[0]]
+    gross_eta_system = (gross_turbo_comp_power+booster_power+gross_sofc_elec_power)/(sofc_fuel_power+comb_fuel_power)
+    netto_eta_system = (netto_turbo_comp_power+booster_power+netto_sofc_elec_power)/(sofc_fuel_power+comb_fuel_power)
+    efficiencies = pd.DataFrame([eta_inverter, eta_gear, eta_geno_gt, gross_eta_system,netto_eta_system],
+                                index=['Eta Inverter', 'Eta Gear','Eta Geno GT','Gross Eta System',
+                                       'Netto Eta System'])
+    power = pd.DataFrame ([gross_turbo_comp_power,netto_turbo_comp_power,booster_power, gross_sofc_elec_power,
+                           netto_sofc_elec_power,sofc_fuel_power, comb_fuel_power], index=['Gross Turbo Components '
+                                                                                           'Power','Netto Turbo'
+                                                                                                   'Components Power',
+                                                                                           'Booster Power',
+                                                                                           'Gross SOFC Elec Power',
+                                                                                           'Netto SOFC Power',
+                                                                                           'SOFC Fuel Power',
+                                                                                           'Combustion Chamber Fuel'
+                                                                                           'Power'])
+    df_list_3 = [efficiencies, power]
+    multiple_dfs_1(df_list_3, 'Power', 'Results.xlsx',1)
+
     return compressor_inlet_bulk, turbine_outlet_bulk
 
 
@@ -313,19 +343,19 @@ __pt2 = pv1+ 2000
 __etat = 0.88
 fuel_phase = gas_object(fuel_composition, t_fuel, p_fuel)
 
-#result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, menext, split_factor_bypass,
-#                                 fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
-#                                 fu_system_min, s_to_c_ratio, dp_sofc,__m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
-#                                 __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat)
+result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, menext, split_factor_bypass,
+                                 fuel_phase_sofc, cathode_massflow_max, t_reformer, t_sofc, airnumber, fu_stack,
+                                 fu_system_min, s_to_c_ratio, dp_sofc,__m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
+                                 __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat)
 
 #result[0].phase()
 #result[1].phase()
 
 #help(gasturbine3)
 
-result = gasturbine3(air_composition,fuel_phase,pv1,tv1,mv1,piv,etav,menext,__m_fuel,__tt1,__dp_cc,__m_cooler,
-                     __p_booster,__t_hex_out, __eta_cc, __pt2, __etat, __controller)
+#result = gasturbine3(air_composition,fuel_phase,pv1,tv1,mv1,piv,etav,menext,__m_fuel,__tt1,__dp_cc,__m_cooler,
+#                     __p_booster,__t_hex_out, __eta_cc, __pt2, __etat, __controller)
 
-print(result[1][0][4])
+#print(result[1][0][4])
 
 #help(sofc3)

@@ -818,7 +818,7 @@ def booster(booster_inlet_bulk, p2, is_eff):
     df2 = create_state_dataframe(booster_outlet_bulk, 'Booster Outlet')
 
     gas_properties = pd.concat([df1, df2], axis=1)
-    compressor_power = m1 * (h2 - h1) / 1000
+    compressor_power = -m1 * (h2 - h1) / 1000
     attribute_vector = [m1, t2, t2_is, compressor_power]
 
     return booster_outlet_bulk, attribute_vector, gas_properties
