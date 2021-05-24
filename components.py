@@ -834,7 +834,7 @@ def cooler (cooler_inlet_bulk):
     t1 = cooler_inlet_bulk.phase.T
     m1 = cooler_inlet_bulk.mass
     p1 = cooler_inlet_bulk.phase.P
-    t2 = t1 - (q_cooler/(cp_mass*m1))
+    t2 = t1 - (q_cooler/(cp_mass/1000*m1))
     p2 = p1 - dp_cooler
 
     cooler_outlet_bulk.TP = t2,p2
