@@ -190,6 +190,7 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
 
     if cooler_inlet_mass <= 20:
         cooler_inlet_mass = cooler_inlet_mass
+        m_add_comb = 0
     elif cooler_inlet_mass >20:
         m_add_comb = cooler_inlet_mass-20
         cooler_inlet_mass = 20
@@ -198,10 +199,13 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     cooler_outlet_bulk = cooler(cooler_inlet_bulk)[1]
 
     if cooler_outlet_bulk.mass > 15.4:
-        m_add_comb_2 = cooler_outlet_bulk.mass - 15.4
+        tla1_cooling_air = cooler_outlet_bulk.mass - 15.4
         cooler_outlet_bulk.mass = 15.4
     elif cooler_outlet_bulk.mass <= 15.4:
-        cooler_outlet_bulk.mass = cooler_outlet_bulk.mass
+        tla1_cooling_air = 4.6
+        cooler_outlet_bulk.mass = cooler_outlet_bulk.mass - tla1_cooling_air
+
+    tla1_cooling_air_bulk = ct.Quantity(cooler_outlet_bulk.phase, mass=tla1_cooling_air)
 
     p2_b = cooler_outlet_bulk.phase.P * 1.22
     eta_booster = 0.85
@@ -209,21 +213,35 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     booster_outlet_bulk = booster(cooler_outlet_bulk,p2_b,eta_booster)[0]
 
     sofc_oxidator_mass = booster_outlet_bulk.mass
-    bypass_mass = split_factor_bypass*compressor_outlet_mass + m_add_comb + m_add_comb_2
+    bypass_mass = split_factor_bypass*compressor_outlet_mass + m_add_comb
 
     sofc_oxidator_inlet_bulk = ct.Quantity(booster_outlet_bulk.phase, mass=sofc_oxidator_mass)
-    bypass_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=bypass_mass)
+    bypass_bulk = ct.Quantity(compressor_outlet_bulk.phase, mass=bypass_mass+tla1_cooling_air)
+    bypass_bulk_tit = ct.Quantity(compressor_outlet_bulk.phase, mass=bypass_mass)
 
     sofc_outlet_bulk = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
                              sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
                              s_to_c_ratio, dp_sofc)[0][11]
-    combustor_inlet_oxidator_bulk = sofc_outlet_bulk + bypass_bulk
+    combustor_inlet_oxidator_bulk = bypass_bulk+sofc_outlet_bulk
+    combustor_inlet_oxidator_bulk_tit = bypass_bulk_tit
     combustor_outlet_flue_bulk = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
                                                      __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
                                                      __tt1, __m_fuel, __controller)[0][5]
+    #combustor_fuel_bulk = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
+    #                                                 __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
+    #                                                 __tt1, __m_fuel, __controller)[0][4]
+    pt1 = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
+                                                     __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
+                                                     __tt1, __m_fuel, __controller)[0][5].phase.P
+    dt_tit = 212
+    combustor_outlet_flue_bulk_tit = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk_tit,
+                                                         fuel_phase_gt,
+                                                     __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
+                                                     __tt1, __m_fuel, __controller)[0][5]
+    combustor_outlet_flue_bulk_tit.TP = (__tt1+dt_tit), pt1
+    tla1_bulk = sofc_outlet_bulk+combustor_outlet_flue_bulk_tit
+    #combustor_outlet_flue_bulk_tit.equilibrate('HP')
     turbine_outlet_bulk = turbine(combustor_outlet_flue_bulk, __pt2, __etat)[0][1]
-
-
 
     gas_prop_comp = compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[2]
     gas_prop_cool = cooler(cooler_inlet_bulk)[3]
@@ -231,22 +249,28 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     gas_prop_comb = combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
                                                      __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
                                                      __tt1, __m_fuel, __controller)[2]
+    gas_prop_tla1_cooling = create_state_dataframe(tla1_cooling_air_bulk, "TLA1 Cooling Air Bulk")
+    gas_prop_bypass_tit = create_state_dataframe(bypass_bulk_tit, "Bypass Bulk TIT")
+    gas_prop_comb_tit = create_state_dataframe(combustor_outlet_flue_bulk_tit, "Combustor Outlet Flue Bulk TIT")
+    gas_prop_tla1 = create_state_dataframe(tla1_bulk, "Before TLA1 Bulk")
     gas_prop_turb = turbine(combustor_outlet_flue_bulk, __pt2, __etat)[2]
     gas_prop_sofc = sofc3(fuel_phase_sofc, sofc_oxidator_inlet_bulk.phase, cathode_massflow_max,
                              sofc_oxidator_inlet_bulk.mass, t_reformer, t_sofc, airnumber, fu_stack, fu_system_min,
                              s_to_c_ratio, dp_sofc)[5]
-    df_list = [gas_prop_comp, gas_prop_cool, gas_prop_boo, gas_prop_comb, gas_prop_turb, gas_prop_sofc]
+    df_list = [gas_prop_comp, gas_prop_cool, gas_prop_boo, gas_prop_comb, gas_prop_tla1_cooling, gas_prop_bypass_tit,
+               gas_prop_comb_tit, gas_prop_tla1, gas_prop_turb, gas_prop_sofc]
     multiple_dfs(df_list, 'Bulk','Results.xlsx',1)
 
     attr_comp = pd.DataFrame (compressor(__air_composition, __pv1, __tv1, __mv1, __piv, __etav, __menext)[1],
                               index = ['MV1','MV1 EQ', 'PV1', 'PV2','PIV','TV1','TV2', 'TV2 IS','Compressor Power',
                                        'Compressor Power Equivalent'])
-    attr_cool = pd.DataFrame(cooler(cooler_inlet_bulk)[2], index = ['M1', 'T2', 'P2'])
+    attr_cool = pd.DataFrame(cooler(cooler_inlet_bulk)[2], index = ['M1', 'T2', 'P2','Q Cooler'])
     attr_comb = pd.DataFrame(combustion_chamber3(compressor_inlet_bulk,combustor_inlet_oxidator_bulk, fuel_phase_gt,
                                                      __menext, __m_cooler, __p_booster,__t_hex_out, __eta_cc, __dp_cc,
                                                      __tt1, __m_fuel, __controller)[1], index=['M Fuel', 'LHV',
                                                                                                'Fuel Heat Power',
                                                                                                'PT1','TT1'])
+    #attr_comb_tit = pd.DataFrame (combustor_outlet_flue_bulk_tit)
     attr_turb = pd.DataFrame(turbine(combustor_outlet_flue_bulk, __pt2, __etat)[1], index = ['MT1', 'PT1', 'TT1', 'PT2',
                              'TT2 IS', 'TT2', 'Turbine Power'])
     attr_boo = pd.DataFrame(booster(cooler_outlet_bulk, p2_b, eta_booster)[1], index = ['M1','T2','T2 IS',
@@ -302,7 +326,7 @@ def sofc_gt643_hybridsystem(__air_composition, __pv1, __tv1, __mv1, __piv, __eta
     df_list_3 = [efficiencies, power]
     multiple_dfs_1(df_list_3, 'Power', 'Results.xlsx',1)
 
-    return compressor_inlet_bulk, turbine_outlet_bulk
+    return combustor_outlet_flue_bulk_tit, combustor_outlet_flue_bulk
 
 
 #help(combustion_chamber3)
@@ -329,7 +353,7 @@ airnumber = 2
 fu_stack = 0.6
 fu_system_min = 0.8
 s_to_c_ratio = 2.05
-dp_sofc = 200000
+dp_sofc = 20000
 __m_cooler = 15
 __p_booster = 600
 __t_hex_out = 200 + 273.15
@@ -348,8 +372,10 @@ result = sofc_gt643_hybridsystem(air_composition, pv1, tv1, mv1, piv, etav, mene
                                  fu_system_min, s_to_c_ratio, dp_sofc,__m_cooler, __p_booster,__t_hex_out,fuel_phase_gt,
                                  __eta_cc, __dp_cc,__tt1, __m_fuel, __controller, __pt2, __etat)
 
-#result[0].phase()
-#result[1].phase()
+result_1 = gasturbine3(air_composition, fuel_phase_gt, pv1, tv1, mv1, piv, etav, menext, __m_fuel,
+                       __tt1, __dp_cc, __m_cooler, __p_booster, __t_hex_out, __eta_cc, __pt2, __etat, __controller)
+
+print(result_1[1][0][4])
 
 #help(gasturbine3)
 
